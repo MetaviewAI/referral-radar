@@ -8,6 +8,7 @@ would actually answer. Recruiters have tools like this (we build one at Metaview
 
 ```bash
 git clone https://github.com/MetaviewAI/referral-radar && cd referral-radar
+pip install requests
 export GITHUB_TOKEN=$(gh auth token)          # 5,000 GitHub calls/hr for you instead of 60/hr for the whole room
 export EXA_API_KEY=<your key: dashboard.exa.ai, Google sign-in, free, no card. Finish onboarding: Skip loses the $10 credit. Stuck? fallback key on the cheat sheet>
 export ANTHROPIC_API_KEY=<yours>              # or OPENAI_API_KEY, plus OPENAI_BASE_URL for Groq / OpenRouter / Ollama
