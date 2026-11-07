@@ -6,10 +6,10 @@ flipped around. Keep it small.
 
 ## Files
 
-- `profile.json` — the student. `targets[]` are companies with `ats` (`ashby` | `greenhouse` | `lever`) and `slug`.
+- `profile.json` — the student (gitignored; start from the demo `profile.example.json`). `unis[]` is every university they went to. `targets[]` are companies with `ats` (`ashby` | `greenhouse` | `lever`) and `slug`.
 - `engine.py` — Python 3.9+, **standard library only, no pip installs**. Fetches jobs, people, GitHub overlap into `research.json`. `OFFLINE=1` reads `fixtures/` instead of the network. Each HTTP call times out at 8s and falls back to a fixture; never let one failing source crash the run.
-- `research.json` — raw material. `companies[].jobs`; `companies[].people` from Exa people search, each with structured `current` / `past` jobs (company, title, dates), `education` (institution, degree, dates), `location`, the public profile `text`, and two hints computed by engine.py: `at_company` (a current job at the target with no end date) and `shared` (uni / school / past employer matched from the structured history, societies and hackathons matched in the text). Societies, hackathons and repos only show up in `text`, so read it. About a third of the people returned do not work at the target company; `at_company` is the filter. A person with an empty `current` list is unverified, not gone: check the `text` headline before dropping them. `github`: contributors to repos the student starred, public org members.
-- `routes.md` — the output: ranked routes + messages. The coding agent writes this.
+- `research.json` — raw material. `companies[].jobs` (the 25 most relevant per board: engineering first, then `in_my_locations`, then `early_career`); `companies[].people` from Exa people search, each with structured `current` / `past` jobs (company, title, dates), `education` (institution, degree, dates), `location`, the public profile `text` (engine.py drops the generated company and school descriptions Exa adds, so what is left is about the person), and two hints computed by engine.py: `at_company` (a current job at the target with no end date) and `shared` (uni / school / past employer matched from the structured history, societies and hackathons matched in the text). Societies, hackathons and repos only show up in `text`, so read it. About a third of the people returned do not work at the target company; `at_company` is the filter. A person with an empty `current` list is unverified, not gone: check the `text` headline before dropping them. `github`: contributors to repos the student starred, public org members.
+- `routes.md` — the output: ranked routes + messages. The coding agent writes this (gitignored).
 
 ## Data sources
 
