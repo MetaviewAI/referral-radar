@@ -6,7 +6,7 @@ Paste these into your AI coding tool (Cursor, Claude Code, Codex, Copilot, Winds
 
 ```
 Read AGENTS.md. Then ask me the questions you need to rewrite profile.json so it is about me:
-uni, course, grad year, societies, hometown, school, GitHub username, hackathons, interests,
+every uni (unis is a list), course, grad year, societies, hometown, school, GitHub username, hackathons, interests,
 roles I want, locations, and 3 target companies. For each target company, find its public job
 board: check https://api.ashbyhq.com/posting-api/job-board/<slug>,
 https://boards-api.greenhouse.io/v1/boards/<slug>/jobs and

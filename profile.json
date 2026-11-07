@@ -1,6 +1,6 @@
 {
   "name": "Your Name",
-  "uni": "University of Edinburgh",
+  "unis": ["University of Edinburgh"],
   "course": "Computer Science",
   "grad_year": 2027,
   "school": "",

@@ -39,6 +39,6 @@ profile.json ─► engine.py ─► research.json ─► your coding agent ─�
 
 ## Files
 
-`engine.py` fetch · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you (fields: uni, course, school, societies, hometown, city, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
+`engine.py` fetch · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you (fields: unis, course, school, societies, hometown, city, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
 
 Built for HackTheBurgh XIII by Metaview. Questions: find us at the booth.

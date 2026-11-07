@@ -23,8 +23,10 @@ EXA_KEY = os.environ.get("EXA_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 TIMEOUT = 8
 JOBS_TIMEOUT = 45  # big Lever boards (e.g. palantir, ~6 MB) take 15-25s
-EARLY_CAREER = re.compile(r"grad|intern|junior|new grad|early career|associate|entry|placement|apprentice", re.I)
-ENGINEERING = re.compile(r"engineer|developer|software|data|ml|machine learning|research|product|design|security|platform|devops|sre|analyst", re.I)
+EARLY_CAREER = re.compile(r"\b(grad|graduate|intern(s|ships?)?|junior|early[- ]career|entry[- ]level|placement|apprentice(ship)?)\b", re.I)
+ENGINEERING = re.compile(r"\b(engineer(ing)?|developer|software|ml|machine learning|scientist|devops|sre)\b", re.I)
+# Exa appends a generated description after each job and school ("Monzo is a Banking company. ... workforce in Germany ...").
+ORG_BLURB = re.compile(r"^.{1,150}? is an? [\w ,&()-]{0,60}?\b(company|institution|organi[sz]ation|agency)\b")
 
 NO_KEY_WARNING = """
 !! EXA_API_KEY is not set, so no people search: every company will show 0 people
@@ -90,7 +92,11 @@ def strip_html(s):
     return re.sub(r"<[^>]+>", " ", html.unescape(s or "")).strip()
 
 
-def jobs_for(target):
+def norm(x):
+    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).replace("the university of", "university of").strip()
+
+
+def jobs_for(target, locations):
     ats, slug = target.get("ats"), target.get("slug")
     name = f"jobs_{slug}"
     if ats == "greenhouse":
@@ -112,17 +118,19 @@ def jobs_for(target):
     else:
         log(f"  ! unknown ats {ats!r} for {target.get('name')}")
         return [], "skipped"
+    wanted = [norm(loc) for loc in locations if loc]
     for j in jobs:
         j["early_career"] = bool(EARLY_CAREER.search(j["title"]))
         j["engineering"] = bool(ENGINEERING.search(j["title"]))
-    jobs.sort(key=lambda j: (not (j["early_career"] and j["engineering"]), not j["engineering"], not j["early_career"]))
-    return jobs[:25], src
+        j["in_my_locations"] = any(loc in norm(j["location"]) for loc in wanted)
+    jobs.sort(key=lambda j: (not j["engineering"], not j["in_my_locations"], not j["early_career"]))
+    return jobs, src
 
 
 # ---------- people ----------
 
-def norm(x):
-    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).replace("the university of", "university of").strip()
+def strip_org_blurbs(text):
+    return "\n\n".join(p for p in re.split(r"\n\s*\n", text) if not ORG_BLURB.match(p.strip()))
 
 
 def exa_people(name, query, n=8, keyword=False):
@@ -151,8 +159,12 @@ def exa_people(name, query, n=8, keyword=False):
         people.append({"name": props.get("name") or (r.get("title") or "").split(" - ")[0].split(" | ")[0].strip(), "url": r.get("url"), "location": props.get("location"),
                        "current": [w for w in work if w["company"] and not w["to"]],
                        "past": [w for w in work if w["company"] and w["to"]],
-                       "education": edu, "text": r.get("text") or "", "query": query})
+                       "education": edu, "text": strip_org_blurbs(r.get("text") or ""), "query": query})
     return people, src
+
+
+def found(wants, haystack):
+    return [w for w in wants if w and any(norm(w) in h for h in haystack)]
 
 
 def people_for(profile, target):
@@ -162,13 +174,15 @@ def people_for(profile, target):
     from educationHistory / past employers / the profile text. Societies and repos only show up in
     the text, so the agent still has to read it."""
     company = target["name"]
-    hooks = [(profile.get("uni"), "who studied at"), (profile.get("school"), "who went to school at")] \
-        + [(s, "who were in") for s in profile.get("societies", [])[:1]] \
+    # Highest-scoring overlaps in the Prompt 2 rubric first, since only the first five are searched.
+    hooks = [(s, "who were in") for s in profile.get("societies", [])[:1]] \
+        + [(profile.get("school"), "who went to school at")] \
+        + [(profile.get("hometown"), "who grew up in")] \
         + [(e, "who previously worked at") for e in profile.get("past_employers", [])[:1]] \
-        + [(profile.get("hometown"), "who grew up in")]
+        + [(u, "who studied at") for u in profile.get("unis", [])]
     hooks = [(h, verb) for h, verb in hooks if h]
     out, srcs = [], []
-    for hook, verb in hooks[:4]:
+    for hook, verb in hooks[:5]:
         slug = re.sub(r"[^a-z0-9]+", "_", f"{company}_{hook}".lower())
         people, src = exa_people(f"people_{slug}", f"People working at {company} {verb} {hook}")
         out += people
@@ -183,18 +197,12 @@ def people_for(profile, target):
             continue
         seen.add(key)
         p["at_company"] = any(norm(company) in norm(w["company"]) for w in p["current"])
-        shared = []
-        if profile.get("uni") and any(norm(profile["uni"]) in norm(e["institution"]) for e in p["education"]):
-            shared.append(f"uni: {profile['uni']}")
-        if profile.get("school") and any(norm(profile["school"]) in norm(e["institution"]) for e in p["education"]):
-            shared.append(f"school: {profile['school']}")
-        for emp in profile.get("past_employers", []):
-            if any(norm(emp) in norm(w["company"]) for w in p["past"] + p["current"]):
-                shared.append(f"past employer: {emp}")
-        for h in profile.get("societies", []) + profile.get("hackathons", []):
-            if h and h.lower() in p["text"].lower():
-                shared.append(f"in text: {h}")
-        p["shared"] = shared
+        institutions = [norm(e["institution"]) for e in p["education"]]
+        employers = [norm(w["company"]) for w in p["past"] + p["current"]]
+        p["shared"] = [f"uni: {u}" for u in found(profile.get("unis", []), institutions)] \
+            + [f"school: {s}" for s in found([profile.get("school")], institutions)] \
+            + [f"past employer: {e}" for e in found(profile.get("past_employers", []), employers)] \
+            + [f"in text: {h}" for h in found(profile.get("societies", []) + profile.get("hackathons", []), [norm(p["text"])])]
         dedup.append(p)
     dedup.sort(key=lambda p: (not p["at_company"], -len(p["shared"])))
     return dedup, srcs
@@ -249,8 +257,10 @@ def main():
                 "companies": [], "github": {}, "sources": []}
     for t in profile.get("targets", []):
         log(f"- {t['name']}: jobs ...")
-        jobs, jsrc = jobs_for(t)
-        log(f"  {len(jobs)} jobs ({jsrc}), {sum(j['early_career'] for j in jobs)} early-career")
+        jobs, jsrc = jobs_for(t, profile.get("locations", []))
+        jobs, total = jobs[:25], len(jobs)
+        log(f"  {len(jobs)} of {total} jobs ({jsrc}), {sum(j['engineering'] and j['in_my_locations'] for j in jobs)} engineering in your locations, "
+            f"{sum(j['early_career'] for j in jobs)} early-career")
         log(f"- {t['name']}: people ...")
         people, psrcs = people_for(profile, t)
         log(f"  {len(people)} people ({', '.join(psrcs)})")
