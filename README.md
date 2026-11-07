@@ -15,6 +15,9 @@ export ANTHROPIC_API_KEY=<yours>              # or GEMINI_API_KEY (free: aistudi
 python3 agent.py                              # watch it search, read, draft, check, save routes.md
 ```
 
+Or put the keys in a `.env` file next to the scripts (`cp .env.example .env`); it is read on start
+and gitignored.
+
 Write `profile.json` first (copy `profile.example.json`, or paste **Prompt 1** from
 [PROMPTS.md](PROMPTS.md) into your coding tool and let it interview you). Then run the agent.
 

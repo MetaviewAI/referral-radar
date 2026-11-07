@@ -13,6 +13,21 @@ import time
 import requests
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_dotenv():
+    """KEY=value lines from .env next to the scripts, without overriding what is already exported."""
+    path = os.path.join(ROOT, ".env")
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+
+
+load_dotenv()
 OFFLINE = os.environ.get("OFFLINE") == "1"
 EXA_KEY = os.environ.get("EXA_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")

@@ -3,3 +3,4 @@ research.json
 __pycache__/
 profile.json
 routes.md
+.env
