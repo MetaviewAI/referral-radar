@@ -9,13 +9,13 @@ queries to run, reads what comes back, and writes routes.md when it has evidence
     #                                 (+ OPENAI_BASE_URL for Groq, OpenRouter, Ollama...). MODEL overrides the default.
     python3 agent.py
 
-Python 3.9+, `pip install requests`. Tools live in tools.py; add yours there.
+Python 3.9+ and `requests`. Tools live in tools.py; add yours there.
 """
 import json
 import os
 import sys
-import requests
 
+import sources
 import tools
 
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "30"))
@@ -26,6 +26,7 @@ OPENAI = os.environ.get("OPENAI_API_KEY") or GEMINI
 BASE = (os.environ.get("OPENAI_BASE_URL")
         or ("https://generativelanguage.googleapis.com/v1beta/openai" if GEMINI and not os.environ.get("OPENAI_API_KEY") else "https://api.openai.com/v1")).rstrip("/")
 MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gemini-3.8-flash" if OPENAI == GEMINI else "gpt-4.1")
+ROUTES = os.path.join(sources.ROOT, "routes.md")
 
 SYSTEM = """You are a referral radar for a student. Find the people inside their target companies who
 share something real with them, prove it with evidence, and write one message per route.
@@ -48,28 +49,25 @@ How to work:
   "pick your brain". Run every message through check_message and fix what it flags.
 - Finish by calling save_routes with: per company, the top 3 routes ranked by score, each with name,
   profile url, score, the quoted evidence, and the message. Then a one-line list of people found who
-  are not at the company. Public data only; the student sends every message by hand.
+  are not at the company. Public data only; the student sends every message by hand. After saving,
+  reply with one line and stop.
 """
 
 
-def http(url, body, headers):
-    r = requests.post(url, json=body, headers=headers, timeout=120)
-    if not r.ok:
-        sys.exit(f"{url}: HTTP {r.status_code} {r.text[:300]}")
-    return r.json()
+def llm(url, body, headers):
+    try:
+        return sources.http(url, body, headers, timeout=120)
+    except sources.requests.HTTPError as e:
+        sys.exit(f"{url}: HTTP {e.response.status_code} {e.response.text[:300]}")
 
 
 def run_tool(name, args):
     print(f"  -> {name}({', '.join(f'{k}={str(v)[:60]!r}' for k, v in args.items())})", file=sys.stderr)
     try:
-        props = tools.TOOLS[name]["schema"]["properties"]
-        args = {k: (int(v) if props.get(k, {}).get("type") == "integer" else str(v)) for k, v in args.items()}
-        out = tools.TOOLS[name]["fn"](**args)
+        out = tools.call(name, args)
     except Exception as e:  # noqa: BLE001
         out = {"error": f"{type(e).__name__}: {e}"}
-    s = json.dumps(out)
-    print(f"     {len(s)} chars back", file=sys.stderr)
-    return s[:60000]
+    return json.dumps(out)
 
 
 # ---------- Anthropic ----------
@@ -78,21 +76,18 @@ def anthropic_loop(task):
     specs = [{"name": n, "description": t["description"], "input_schema": t["schema"]} for n, t in tools.TOOLS.items()]
     messages = [{"role": "user", "content": task}]
     for _ in range(MAX_STEPS):
-        r = http("https://api.anthropic.com/v1/messages",
-                 {"model": MODEL, "max_tokens": 8000, "system": SYSTEM, "tools": specs, "messages": messages},
-                 {"x-api-key": ANTHROPIC, "anthropic-version": "2023-06-01"})
+        r = llm("https://api.anthropic.com/v1/messages",
+                {"model": MODEL, "max_tokens": 8000, "system": SYSTEM, "tools": specs, "messages": messages},
+                {"x-api-key": ANTHROPIC, "anthropic-version": "2023-06-01"})
         messages.append({"role": "assistant", "content": r["content"]})
-        calls = [b for b in r["content"] if b["type"] == "tool_use"]
         for b in r["content"]:
             if b["type"] == "text" and b["text"].strip():
                 print(b["text"].strip(), file=sys.stderr)
+        calls = [b for b in r["content"] if b["type"] == "tool_use"]
         if not calls:
-            return
-        results = [{"type": "tool_result", "tool_use_id": c["id"], "content": run_tool(c["name"], c["input"])} for c in calls]
-        messages.append({"role": "user", "content": results})
-        if any(c["name"] == "save_routes" for c in calls):
-            return
-    print("Hit MAX_STEPS without saving routes.md; raise MAX_STEPS or tighten the task.", file=sys.stderr)
+            return True
+        messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": c["id"], "content": run_tool(c["name"], c["input"])} for c in calls]})
+    return False
 
 
 # ---------- OpenAI-compatible ----------
@@ -102,34 +97,36 @@ def openai_loop(task):
              for n, t in tools.TOOLS.items()]
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
     for _ in range(MAX_STEPS):
-        r = http(f"{BASE}/chat/completions", {"model": MODEL, "messages": messages, "tools": specs},
-                 {"Authorization": f"Bearer {OPENAI}"})
+        r = llm(f"{BASE}/chat/completions", {"model": MODEL, "messages": messages, "tools": specs}, {"Authorization": f"Bearer {OPENAI}"})
         msg = r["choices"][0]["message"]
         messages.append(msg)
         if msg.get("content"):
             print(msg["content"].strip(), file=sys.stderr)
         calls = msg.get("tool_calls") or []
         if not calls:
-            return
+            return True
         for c in calls:
-            args = json.loads(c["function"]["arguments"] or "{}")
-            messages.append({"role": "tool", "tool_call_id": c["id"], "content": run_tool(c["function"]["name"], args)})
-        if any(c["function"]["name"] == "save_routes" for c in calls):
-            return
-    print("Hit MAX_STEPS without saving routes.md; raise MAX_STEPS or tighten the task.", file=sys.stderr)
+            messages.append({"role": "tool", "tool_call_id": c["id"], "content": run_tool(c["function"]["name"], json.loads(c["function"]["arguments"] or "{}"))})
+    return False
 
 
 def main():
     if not (ANTHROPIC or OPENAI):
         sys.exit("Set ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY (any OpenAI-compatible endpoint works with OPENAI_BASE_URL).")
-    if not os.environ.get("EXA_API_KEY"):
-        print(tools.engine.NO_KEY_WARNING, file=sys.stderr)
-    profile = tools.load_profile()
+    if not sources.EXA_KEY:
+        print(sources.NO_KEY_WARNING, file=sys.stderr)
+    if os.path.exists(ROUTES):
+        os.remove(ROUTES)
+    profile = sources.load_profile()
     task = f"Here is the student's profile:\n{json.dumps(profile, indent=1)}\n\nFind their routes into every target and save routes.md."
     print(f"Referral radar agent: {MODEL}, tools: {', '.join(tools.TOOLS)}", file=sys.stderr)
-    (anthropic_loop if ANTHROPIC else openai_loop)(task)
-    if os.path.exists(os.path.join(tools.engine.ROOT, "routes.md")):
+    finished = (anthropic_loop if ANTHROPIC else openai_loop)(task)
+    if not finished:
+        print(f"Stopped after MAX_STEPS={MAX_STEPS} tool rounds; raise MAX_STEPS or tighten the task.", file=sys.stderr)
+    if os.path.exists(ROUTES):
         print("\nWrote routes.md. Read it, then send the messages you believe in, by hand.")
+    else:
+        print("\nNo routes.md written.")
 
 
 if __name__ == "__main__":
