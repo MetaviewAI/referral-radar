@@ -28,7 +28,7 @@ PROVIDERS = [  # env var, default base url, default model; the first one set win
     ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.8-flash"),  # speaks the OpenAI chat API
 ]
 KEY_VAR, DEFAULT_BASE, DEFAULT_MODEL = next((p for p in PROVIDERS if os.environ.get(p[0])), (None, None, None))
-KEY = os.environ.get(KEY_VAR or "")
+KEY = os.environ.get(KEY_VAR) if KEY_VAR else None
 ANTHROPIC = KEY_VAR == "ANTHROPIC_API_KEY"  # its own wire format; everything else speaks the OpenAI chat API
 BASE = ((os.environ.get("OPENAI_BASE_URL") if not ANTHROPIC else None) or DEFAULT_BASE or "").rstrip("/")
 MODEL = os.environ.get("MODEL") or DEFAULT_MODEL

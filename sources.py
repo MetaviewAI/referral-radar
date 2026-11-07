@@ -83,10 +83,6 @@ def fetch(url, body=None, headers=None, timeout=TIMEOUT, fixture_name=None):
     return data, "fixture"
 
 
-def slug(text):
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
-
-
 def norm(x):
     return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).replace("the university of", "university of").strip()
 

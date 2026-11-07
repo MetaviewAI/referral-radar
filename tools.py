@@ -12,8 +12,8 @@ import slop_check
 import sources
 
 # Supported parameter types: JSON schema name, and how to coerce what the model sends back.
-KINDS = {str: "string", int: "integer", float: "number", bool: "boolean"}
-COERCE = {str: str, int: int, float: float, bool: lambda v: str(v).lower() in ("true", "1")}
+TYPES = {str: ("string", str), int: ("integer", int), float: ("number", float),
+         bool: ("boolean", lambda v: str(v).lower() in ("true", "1"))}
 TOOLS = {}
 
 
@@ -22,9 +22,9 @@ def tool(fn):
     assert doc, f"{fn.__name__} needs a docstring: it is what the model reads"
     props, required, coerce = {}, [], {}
     for name, p in inspect.signature(fn).parameters.items():
-        assert p.annotation in KINDS, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
-        props[name] = {"type": KINDS[p.annotation]}
-        coerce[name] = COERCE[p.annotation]
+        assert p.annotation in TYPES, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
+        props[name] = {"type": TYPES[p.annotation][0]}
+        coerce[name] = TYPES[p.annotation][1]
         if p.default is inspect.Parameter.empty:
             required.append(name)
     TOOLS[fn.__name__] = {"fn": fn, "description": doc, "coerce": coerce,
