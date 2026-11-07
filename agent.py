@@ -5,7 +5,8 @@ Nothing about *how* to search is written down here. The model reads your profile
 queries to run, reads what comes back, and writes routes.md when it has evidence.
 
     export EXA_API_KEY=...            # people search (dashboard.exa.ai, free)
-    export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY (+ optional OPENAI_BASE_URL for Groq, OpenRouter, Ollama...)
+    export ANTHROPIC_API_KEY=...      # or GEMINI_API_KEY (free at aistudio.google.com), or OPENAI_API_KEY
+    #                                 (+ OPENAI_BASE_URL for Groq, OpenRouter, Ollama...). MODEL overrides the default.
     python3 agent.py
 
 Python 3.9+, `pip install requests`. Tools live in tools.py; add yours there.
@@ -19,9 +20,12 @@ import tools
 
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "30"))
 ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY")
-OPENAI = os.environ.get("OPENAI_API_KEY")
-MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gpt-4.1")
-BASE = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+GEMINI = os.environ.get("GEMINI_API_KEY")
+# Gemini speaks the OpenAI chat API, so it is the OpenAI path with a different base URL.
+OPENAI = os.environ.get("OPENAI_API_KEY") or GEMINI
+BASE = (os.environ.get("OPENAI_BASE_URL")
+        or ("https://generativelanguage.googleapis.com/v1beta/openai" if GEMINI and not os.environ.get("OPENAI_API_KEY") else "https://api.openai.com/v1")).rstrip("/")
+MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gemini-2.5-flash" if OPENAI == GEMINI else "gpt-4.1")
 
 SYSTEM = """You are a referral radar for a student. Find the people inside their target companies who
 share something real with them, prove it with evidence, and write one message per route.
@@ -117,7 +121,7 @@ def openai_loop(task):
 
 def main():
     if not (ANTHROPIC or OPENAI):
-        sys.exit("Set ANTHROPIC_API_KEY or OPENAI_API_KEY (any OpenAI-compatible endpoint works with OPENAI_BASE_URL).")
+        sys.exit("Set ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY (any OpenAI-compatible endpoint works with OPENAI_BASE_URL).")
     if not os.environ.get("EXA_API_KEY"):
         print(tools.engine.NO_KEY_WARNING, file=sys.stderr)
     profile = tools.load_profile()
