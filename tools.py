@@ -55,16 +55,16 @@ def search_people(query: str, exact: bool = False, n: int = 8):
 def search_jobs(ats: str, board: str, locations: str = ""):
     """Open jobs on a company's public job board. ats is ashby, greenhouse or lever; board is the
     board name (usually the company name in lowercase). locations is a comma-separated list of the
-    student's cities. Returns the 25 most relevant jobs: title, location, url, and whether each looks
+    student's cities. Returns the most relevant jobs: title, location, url, and whether each looks
     engineering / early-career / in those locations."""
     jobs, src = sources.jobs_for(ats, board, [x.strip() for x in locations.split(",") if x.strip()])
-    return {"source": src, "total": len(jobs), "jobs": [{k: v for k, v in j.items() if k != "description"} for j in jobs[:25]]}
+    return {"source": src, "total": len(jobs), "jobs": [{k: v for k, v in j.items() if k != "description"} for j in jobs[:sources.TOP_JOBS]]}
 
 
 @tool
 def github_org_members(org: str, n: int = 20):
     """Public members of a GitHub organisation, with name, location, bio and company where set."""
-    return [{**m, **sources.gh_user(m["login"])} for m in sources.gh_org_members(org, n)]
+    return sources.gh_org_members(org, n)
 
 
 @tool

@@ -18,6 +18,7 @@ EXA_KEY = os.environ.get("EXA_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 TIMEOUT = 8
 JOBS_TIMEOUT = 45  # big Lever boards (e.g. palantir, ~6 MB) take 15-25s
+TOP_JOBS = 25
 EARLY_CAREER = re.compile(r"\b(grad|graduate|intern(s|ships?)?|junior|early[- ]career|entry[- ]level|placement|apprentice(ship)?)\b", re.I)
 ENGINEERING = re.compile(r"\b(engineers?|developer|software|ml|machine learning|scientist|devops|sre)\b", re.I)
 # Exa appends a generated description after each job and school ("Monzo is a Banking company. ... workforce in Germany ...").
@@ -190,6 +191,7 @@ def gh_user(login):
     return {k: (u or {}).get(k) for k in ("name", "location", "bio", "company")}
 
 
-def gh_org_members(org, n=50):
+def gh_org_members(org, n=20):
+    """Public members of a GitHub org with name, location, bio and company where set."""
     members, _ = gh(f"/orgs/{org}/public_members?per_page={n}")
-    return [{"login": m["login"], "url": m["html_url"]} for m in (members or [])]
+    return [{"login": m["login"], "url": m["html_url"], **gh_user(m["login"])} for m in (members or [])]

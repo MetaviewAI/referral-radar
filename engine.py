@@ -68,7 +68,7 @@ def github_overlap(profile, targets):
         result["contributors_of_my_starred"] += [{"login": c["login"], "repo": full, "url": c["html_url"]} for c in contribs or []]
     for t in targets:
         if t.get("github_org"):
-            result["org_members"][t["name"]] = [{**m, **sources.gh_user(m["login"])} for m in sources.gh_org_members(t["github_org"], 8)]
+            result["org_members"][t["name"]] = sources.gh_org_members(t["github_org"], 8)
     return result
 
 
@@ -83,7 +83,7 @@ def main():
     for t in profile.get("targets", []):
         log(f"- {t['name']}: jobs ...")
         jobs, jsrc = sources.jobs_for(t.get("ats", ""), t.get("slug", ""), profile.get("locations", []))
-        total, jobs = len(jobs), jobs[:25]
+        total, jobs = len(jobs), jobs[:sources.TOP_JOBS]
         log(f"  {len(jobs)} of {total} jobs ({jsrc}), {sum(j['engineering'] and j['in_my_locations'] for j in jobs)} engineering in your locations, "
             f"{sum(j['early_career'] for j in jobs)} early-career")
         log(f"- {t['name']}: people ...")

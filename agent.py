@@ -29,7 +29,8 @@ PROVIDERS = [  # env var, default base url, default model; the first one set win
 ]
 KEY_VAR, DEFAULT_BASE, DEFAULT_MODEL = next((p for p in PROVIDERS if os.environ.get(p[0])), (None, None, None))
 KEY = os.environ.get(KEY_VAR or "")
-BASE = ((os.environ.get("OPENAI_BASE_URL") if KEY_VAR != "ANTHROPIC_API_KEY" else None) or DEFAULT_BASE or "").rstrip("/")
+ANTHROPIC = KEY_VAR == "ANTHROPIC_API_KEY"  # its own wire format; everything else speaks the OpenAI chat API
+BASE = ((os.environ.get("OPENAI_BASE_URL") if not ANTHROPIC else None) or DEFAULT_BASE or "").rstrip("/")
 MODEL = os.environ.get("MODEL") or DEFAULT_MODEL
 ROUTES = os.path.join(sources.ROOT, "routes.md")
 
@@ -48,9 +49,9 @@ How to work:
 - Pull the jobs for each target and name a fitting job URL only when there is one.
 - Write each message in the student's voice (profile.how_i_talk). First sentence names the specific
   shared thing with a detail only a real person would mention. One ask, 15 minutes of the reader's
-  time or less; ask for advice before asking for a referral. The length and wording rules are
-  enforced by check_message (banned: """ + ", ".join(slop_check.BANNED) + """). Run every message
-  through it and fix what it flags.
+  time or less; ask for advice before asking for a referral. 90 words max, no exclamation marks, em
+  dashes or bullet lists, none of the banned phrases (""" + ", ".join(slop_check.BANNED) + """).
+  check_message enforces all of that: run every message through it and fix what it flags.
 - Finish by calling save_routes with: per company, the top 3 routes ranked by score, each with name,
   profile url, score, the quoted evidence, and the message. Then a one-line list of people found who
   are not at the company. Public data only; the student sends every message by hand. After saving,
@@ -123,7 +124,7 @@ def main():
     profile = sources.load_profile()
     task = f"Here is the student's profile:\n{json.dumps(profile, indent=1)}\n\nFind their routes into every target and save routes.md."
     print(f"Referral radar agent: {MODEL}, tools: {', '.join(tools.TOOLS)}", file=sys.stderr)
-    finished = (anthropic_loop if KEY_VAR == "ANTHROPIC_API_KEY" else openai_loop)(task)
+    finished = (anthropic_loop if ANTHROPIC else openai_loop)(task)
     if not finished:
         print(f"Stopped after MAX_STEPS={MAX_STEPS} tool rounds; raise MAX_STEPS or tighten the task.", file=sys.stderr)
     if os.path.exists(ROUTES):
