@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Referral radar: gather the raw material for finding your route into a company.
 
-Reads profile.json, fetches open jobs, people with something in common with you,
+Reads profile.json (or the demo profile.example.json until you write one), fetches open jobs, people with something in common with you,
 and GitHub overlap, and writes research.json. Your AI coding agent then does the
 ranking and the writing (see PROMPTS.md).
 
@@ -24,7 +24,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 TIMEOUT = 8
 JOBS_TIMEOUT = 45  # big Lever boards (e.g. palantir, ~6 MB) take 15-25s
 EARLY_CAREER = re.compile(r"\b(grad|graduate|intern(s|ships?)?|junior|early[- ]career|entry[- ]level|placement|apprentice(ship)?)\b", re.I)
-ENGINEERING = re.compile(r"\b(engineer(ing)?|developer|software|ml|machine learning|scientist|devops|sre)\b", re.I)
+ENGINEERING = re.compile(r"\b(engineers?|developer|software|ml|machine learning|scientist|devops|sre)\b", re.I)
 # Exa appends a generated description after each job and school ("Monzo is a Banking company. ... workforce in Germany ...").
 ORG_BLURB = re.compile(r"^.{1,150}? is an? [\w ,&()-]{0,60}?\b(company|institution|organi[sz]ation|agency)\b")
 
@@ -86,14 +86,19 @@ def fetch(name, url, body=None, headers=None, timeout=TIMEOUT):
     return data, "fixture"
 
 
+def norm(x):
+    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).replace("the university of", "university of").strip()
+
+
+def found(wants, haystack):
+    """The wants that appear as whole words in any of the haystack strings."""
+    return [w for w in wants if w and any(f" {norm(w)} " in f" {norm(h)} " for h in haystack)]
+
+
 # ---------- jobs ----------
 
 def strip_html(s):
     return re.sub(r"<[^>]+>", " ", html.unescape(s or "")).strip()
-
-
-def norm(x):
-    return re.sub(r"[^a-z0-9]+", " ", (x or "").lower()).replace("the university of", "university of").strip()
 
 
 def jobs_for(target, locations):
@@ -118,11 +123,10 @@ def jobs_for(target, locations):
     else:
         log(f"  ! unknown ats {ats!r} for {target.get('name')}")
         return [], "skipped"
-    wanted = [norm(loc) for loc in locations if loc]
     for j in jobs:
         j["early_career"] = bool(EARLY_CAREER.search(j["title"]))
         j["engineering"] = bool(ENGINEERING.search(j["title"]))
-        j["in_my_locations"] = any(loc in norm(j["location"]) for loc in wanted)
+        j["in_my_locations"] = bool(found(locations, [j["location"]]))
     jobs.sort(key=lambda j: (not j["engineering"], not j["in_my_locations"], not j["early_career"]))
     return jobs, src
 
@@ -163,10 +167,6 @@ def exa_people(name, query, n=8, keyword=False):
     return people, src
 
 
-def found(wants, haystack):
-    return [w for w in wants if w and any(norm(w) in h for h in haystack)]
-
-
 def people_for(profile, target):
     """Exa people search, one query per hook, then deterministic flags from the structured history.
 
@@ -176,6 +176,7 @@ def people_for(profile, target):
     company = target["name"]
     # Highest-scoring overlaps in the Prompt 2 rubric first, since only the first five are searched.
     hooks = [(s, "who were in") for s in profile.get("societies", [])[:1]] \
+        + [(h, "who went to") for h in profile.get("hackathons", [])[:1]] \
         + [(profile.get("school"), "who went to school at")] \
         + [(profile.get("hometown"), "who grew up in")] \
         + [(e, "who previously worked at") for e in profile.get("past_employers", [])[:1]] \
@@ -196,13 +197,13 @@ def people_for(profile, target):
         if not p["url"] or key in seen:
             continue
         seen.add(key)
-        p["at_company"] = any(norm(company) in norm(w["company"]) for w in p["current"])
-        institutions = [norm(e["institution"]) for e in p["education"]]
-        employers = [norm(w["company"]) for w in p["past"] + p["current"]]
+        p["at_company"] = bool(found([company], [w["company"] for w in p["current"]]))
+        institutions = [e["institution"] for e in p["education"]]
+        employers = [w["company"] for w in p["past"] + p["current"]]
         p["shared"] = [f"uni: {u}" for u in found(profile.get("unis", []), institutions)] \
             + [f"school: {s}" for s in found([profile.get("school")], institutions)] \
             + [f"past employer: {e}" for e in found(profile.get("past_employers", []), employers)] \
-            + [f"in text: {h}" for h in found(profile.get("societies", []) + profile.get("hackathons", []), [norm(p["text"])])]
+            + [f"in text: {h}" for h in found(profile.get("societies", []) + profile.get("hackathons", []), [p["text"]])]
         dedup.append(p)
     dedup.sort(key=lambda p: (not p["at_company"], -len(p["shared"])))
     return dedup, srcs
@@ -247,7 +248,11 @@ def github_overlap(profile, targets):
 # ---------- main ----------
 
 def main():
-    with open(os.path.join(ROOT, "profile.json")) as f:
+    path = os.path.join(ROOT, "profile.json")
+    if not os.path.exists(path):
+        path = os.path.join(ROOT, "profile.example.json")
+        log("No profile.json yet, using the demo profile.example.json (Prompt 1 writes yours).")
+    with open(path) as f:
         profile = json.load(f)
     log(f"Referral radar for {profile.get('name', 'you')} ({'OFFLINE' if OFFLINE else 'live'})")
     no_key = not EXA_KEY and not OFFLINE
@@ -258,7 +263,8 @@ def main():
     for t in profile.get("targets", []):
         log(f"- {t['name']}: jobs ...")
         jobs, jsrc = jobs_for(t, profile.get("locations", []))
-        jobs, total = jobs[:25], len(jobs)
+        total = len(jobs)
+        jobs = jobs[:25]
         log(f"  {len(jobs)} of {total} jobs ({jsrc}), {sum(j['engineering'] and j['in_my_locations'] for j in jobs)} engineering in your locations, "
             f"{sum(j['early_career'] for j in jobs)} early-career")
         log(f"- {t['name']}: people ...")

@@ -5,7 +5,7 @@ Paste these into your AI coding tool (Cursor, Claude Code, Codex, Copilot, Winds
 ## Prompt 1 — make it yours (3 min)
 
 ```
-Read AGENTS.md. Then ask me the questions you need to rewrite profile.json so it is about me:
+Read AGENTS.md. Then ask me the questions you need to write profile.json about me (copy the shape of profile.example.json):
 every uni (unis is a list), course, grad year, societies, hometown, school, GitHub username, hackathons, interests,
 roles I want, locations, and 3 target companies. For each target company, find its public job
 board: check https://api.ashbyhq.com/posting-api/job-board/<slug>,
@@ -18,7 +18,7 @@ into profile.json. Then run `python3 engine.py` and tell me what it found.
 ## Prompt 2 — find my routes in (10 min)
 
 ```
-Read AGENTS.md, profile.json and research.json. Build me ranked routes into my target companies.
+Read AGENTS.md and research.json (its `profile` is me). Build me ranked routes into my target companies.
 
 1. Keep only people with `at_company: true` (a current job at the target in their structured
    history); if their `text` contradicts it, say so. List the rest in one line at the end as
