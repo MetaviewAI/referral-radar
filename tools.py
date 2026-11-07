@@ -11,29 +11,31 @@ import os
 import slop_check
 import sources
 
-KINDS = {str: "string", int: "integer", float: "number", bool: "boolean"}
+# Supported parameter types: JSON schema name, and how to coerce what the model sends back.
+TYPES = {str: ("string", str), int: ("integer", int), float: ("number", float),
+         bool: ("boolean", lambda v: str(v).lower() in ("true", "1"))}
 TOOLS = {}
 
 
 def tool(fn):
     doc = inspect.getdoc(fn)
     assert doc, f"{fn.__name__} needs a docstring: it is what the model reads"
-    props, required = {}, []
+    props, required, coerce = {}, [], {}
     for name, p in inspect.signature(fn).parameters.items():
-        assert p.annotation in KINDS, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
-        props[name] = {"type": KINDS[p.annotation]}
+        assert p.annotation in TYPES, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
+        props[name] = {"type": TYPES[p.annotation][0]}
+        coerce[name] = TYPES[p.annotation][1]
         if p.default is inspect.Parameter.empty:
             required.append(name)
-    TOOLS[fn.__name__] = {"fn": fn, "description": doc, "schema": {"type": "object", "properties": props, "required": required}}
+    TOOLS[fn.__name__] = {"fn": fn, "description": doc, "coerce": coerce,
+                          "schema": {"type": "object", "properties": props, "required": required}}
     return fn
 
 
 def call(name, args):
     """Run a tool with arguments as the model sent them, coerced to the annotated types."""
-    fn = TOOLS[name]["fn"]
-    types = {k: p.annotation for k, p in inspect.signature(fn).parameters.items()}
-    coerced = {k: (str(v).lower() in ("true", "1") if types[k] is bool else types[k](v)) for k, v in args.items() if k in types}
-    return fn(**coerced)
+    t = TOOLS[name]
+    return t["fn"](**{k: t["coerce"][k](v) for k, v in args.items() if k in t["coerce"]})
 
 
 @tool
@@ -45,7 +47,7 @@ def search_people(query: str, exact: bool = False, n: int = 8):
     '"Monzo" "CompSoc"'. Run several different queries; one query rarely finds everyone."""
     people, src = sources.exa_people(query, n=min(n, 10), keyword=exact)
     for p in people:
-        p["text"] = p["text"][:2500]  # jobs and education are structured; the text is for the rest
+        p["text"] = p["text"][:2500]  # keeps the model's context small; jobs and education are structured
     return {"source": src, "people": people}
 
 
@@ -53,16 +55,16 @@ def search_people(query: str, exact: bool = False, n: int = 8):
 def search_jobs(ats: str, board: str, locations: str = ""):
     """Open jobs on a company's public job board. ats is ashby, greenhouse or lever; board is the
     board name (usually the company name in lowercase). locations is a comma-separated list of the
-    student's cities. Returns the 25 most relevant jobs: title, location, url, and whether each looks
+    student's cities. Returns the most relevant jobs: title, location, url, and whether each looks
     engineering / early-career / in those locations."""
     jobs, src = sources.jobs_for(ats, board, [x.strip() for x in locations.split(",") if x.strip()])
-    return {"source": src, "total": len(jobs), "jobs": [{k: v for k, v in j.items() if k != "description"} for j in jobs[:25]]}
+    return {"source": src, "total": len(jobs), "jobs": [{k: v for k, v in j.items() if k != "description"} for j in jobs[:sources.TOP_JOBS]]}
 
 
 @tool
 def github_org_members(org: str, n: int = 20):
     """Public members of a GitHub organisation, with name, location, bio and company where set."""
-    return [{**m, **sources.gh_user(m["login"])} for m in sources.gh_org_members(org, n)]
+    return sources.gh_org_members(org, n)
 
 
 @tool

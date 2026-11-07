@@ -15,6 +15,9 @@ export ANTHROPIC_API_KEY=<yours>              # or GEMINI_API_KEY (free: aistudi
 python3 agent.py                              # watch it search, read, draft, check, save routes.md
 ```
 
+Or put the keys in a `.env` file next to the scripts (`cp .env.example .env`); it is read on start
+and gitignored.
+
 Write `profile.json` first (copy `profile.example.json`, or paste **Prompt 1** from
 [PROMPTS.md](PROMPTS.md) into your coding tool and let it interview you). Then run the agent.
 
@@ -60,7 +63,7 @@ can do, not by telling it what to do. Pick one:
 
 Ship: a diff, a `routes.md`, and one message you would actually send. Show us at the booth.
 
-No LLM key? `python3 engine.py` runs the same tools in a fixed order a person wrote, into
+No LLM key? `python3 engine.py` runs the same sources in a fixed order a person wrote, into
 `research.json`; then paste **Prompt 2** into your coding tool and it does the ranking. No wifi?
 `OFFLINE=1 python3 engine.py` uses the bundled `fixtures/`: job board snapshots for Metaview, Monzo
 and Wordsmith taken on 6 Nov 2026. People are not bundled (they are real people), so finding
@@ -79,10 +82,10 @@ profile.json ─► agent.py ◄──► tools.py ◄──► sources.py ─�
 - Public data only. No LinkedIn scraping, no guessed emails.
 - Every route needs evidence you can quote. No evidence, no route.
 - You send every message yourself, by hand. Max 5 this weekend.
-- Delete `research.json` and `cache/` when you are done; it is other people's public data.
+- `cache/` keeps every live response so re-runs are free; delete it and `research.json` when you are done, they are other people's public data.
 
 ## Files
 
-`agent.py` the loop · `tools.py` what it can call · `sources.py` the network calls · `engine.py` the same tools in a fixed order, no LLM key needed · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you, gitignored; copy `profile.example.json` (fields: unis, course, school, societies, hometown, city, locations, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
+`agent.py` the loop · `tools.py` what it can call · `sources.py` the network calls · `engine.py` the same sources in a fixed order, no LLM key needed · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you, gitignored; copy `profile.example.json` (fields: unis, course, school, societies, hometown, city, locations, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
 
 Built for HackTheBurgh XIII by Metaview. Questions: find us at the booth.

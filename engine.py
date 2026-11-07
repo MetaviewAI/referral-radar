@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Referral radar, the fixed plan. The same tools the agent has, called in an order a person wrote.
+"""Referral radar, the fixed plan. The same sources the agent's tools use, called in an order a person wrote.
 
 Reads profile.json, runs one people search per thing you have in common, fetches jobs and GitHub
 overlap, flags what is shared, and writes research.json for Prompt 2 in PROMPTS.md to rank.
@@ -12,7 +12,6 @@ import os
 import time
 
 import sources
-import tools
 from sources import found, log
 
 
@@ -32,12 +31,12 @@ def people_for(profile, company):
 
     The flags are hints for Prompt 2: `at_company` from workHistory with no end date, `shared`
     from educationHistory / past employers / the profile text."""
-    out, srcs = [], []
+    out, srcs = [], set()
     for hook, verb in hooks_for(profile):
         for query, exact in ((f"People working at {company} {verb} {hook}", False), (f'"{company}" "{hook}"', True)):
-            r = tools.search_people(query, exact=exact)
-            out += r["people"]
-            srcs.append(r["source"])
+            people, src = sources.exa_people(query, keyword=exact)
+            out += people
+            srcs.add(src)
     seen, dedup = set(), []
     for p in out:
         key = sources.norm(p["name"]) or p["url"]
@@ -53,7 +52,7 @@ def people_for(profile, company):
             + [f"in text: {h}" for h in found(profile.get("societies", []) + profile.get("hackathons", []), [p["text"]])]
         dedup.append(p)
     dedup.sort(key=lambda p: (not p["at_company"], -len(p["shared"])))
-    return dedup, srcs
+    return dedup, sorted(srcs)
 
 
 def github_overlap(profile, targets):
@@ -69,7 +68,7 @@ def github_overlap(profile, targets):
         result["contributors_of_my_starred"] += [{"login": c["login"], "repo": full, "url": c["html_url"]} for c in contribs or []]
     for t in targets:
         if t.get("github_org"):
-            result["org_members"][t["name"]] = tools.github_org_members(t["github_org"], n=8)
+            result["org_members"][t["name"]] = sources.gh_org_members(t["github_org"], 8)
     return result
 
 
@@ -80,18 +79,18 @@ def main():
     if no_key:
         log(sources.NO_KEY_WARNING)
     research = {"profile": profile, "generated_at": time.strftime("%Y-%m-%d %H:%M"),
-                "mode": "offline" if sources.OFFLINE else "live", "companies": [], "github": {}, "sources": []}
+                "mode": "offline" if sources.OFFLINE else "live", "companies": [], "github": {}, "sources": {}}
     for t in profile.get("targets", []):
         log(f"- {t['name']}: jobs ...")
-        r = tools.search_jobs(t.get("ats", ""), t.get("slug", ""), ",".join(profile.get("locations", [])))
-        jobs = r["jobs"]
-        log(f"  {len(jobs)} of {r['total']} jobs ({r['source']}), {sum(j['engineering'] and j['in_my_locations'] for j in jobs)} engineering in your locations, "
+        jobs, jsrc = sources.jobs_for(t.get("ats", ""), t.get("slug", ""), profile.get("locations", []))
+        total, jobs = len(jobs), jobs[:sources.TOP_JOBS]
+        log(f"  {len(jobs)} of {total} jobs ({jsrc}), {sum(j['engineering'] and j['in_my_locations'] for j in jobs)} engineering in your locations, "
             f"{sum(j['early_career'] for j in jobs)} early-career")
         log(f"- {t['name']}: people ...")
         people, psrcs = people_for(profile, t["name"])
         log(f"  {len(people)} people ({', '.join(psrcs)})")
         research["companies"].append({"name": t["name"], "jobs": jobs, "people": people})
-        research["sources"].append({t["name"]: {"jobs": r["source"], "people": psrcs}})
+        research["sources"][t["name"]] = {"jobs": jsrc, "people": psrcs}
     log("- GitHub overlap ...")
     research["github"] = github_overlap(profile, profile.get("targets", []))
     with open(os.path.join(sources.ROOT, "research.json"), "w") as f:

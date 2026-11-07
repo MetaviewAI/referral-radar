@@ -15,17 +15,23 @@ import json
 import os
 import sys
 
+import requests
+
+import slop_check
 import sources
 import tools
 
 MAX_STEPS = int(os.environ.get("MAX_STEPS", "30"))
-ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY")
-GEMINI = os.environ.get("GEMINI_API_KEY")
-# Gemini speaks the OpenAI chat API, so it is the OpenAI path with a different base URL.
-OPENAI = os.environ.get("OPENAI_API_KEY") or GEMINI
-BASE = (os.environ.get("OPENAI_BASE_URL")
-        or ("https://generativelanguage.googleapis.com/v1beta/openai" if GEMINI and not os.environ.get("OPENAI_API_KEY") else "https://api.openai.com/v1")).rstrip("/")
-MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gemini-3.8-flash" if OPENAI == GEMINI else "gpt-4.1")
+PROVIDERS = [  # env var, default base url, default model; the first one set wins
+    ("ANTHROPIC_API_KEY", "https://api.anthropic.com", "claude-sonnet-4-5"),
+    ("OPENAI_API_KEY", "https://api.openai.com/v1", "gpt-4.1"),
+    ("GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.8-flash"),  # speaks the OpenAI chat API
+]
+KEY_VAR, DEFAULT_BASE, DEFAULT_MODEL = next((p for p in PROVIDERS if os.environ.get(p[0])), (None, None, None))
+KEY = os.environ.get(KEY_VAR) if KEY_VAR else None
+ANTHROPIC = KEY_VAR == "ANTHROPIC_API_KEY"  # its own wire format; everything else speaks the OpenAI chat API
+BASE = ((os.environ.get("OPENAI_BASE_URL") if not ANTHROPIC else None) or DEFAULT_BASE or "").rstrip("/")
+MODEL = os.environ.get("MODEL") or DEFAULT_MODEL
 ROUTES = os.path.join(sources.ROOT, "routes.md")
 
 SYSTEM = """You are a referral radar for a student. Find the people inside their target companies who
@@ -41,12 +47,11 @@ How to work:
   contributed to the same repo 4, same past employer 3, same uni 2 (+1 same course), same city 1.
   A claim with no quote from the data scores 0. "Lives in Edinburgh" is not "studied at Edinburgh".
 - Pull the jobs for each target and name a fitting job URL only when there is one.
-- Write each message in the student's voice (profile.how_i_talk). 90 words max. First sentence names
-  the specific shared thing with a detail only a real person would mention. One ask, 15 minutes of the
-  reader's time or less; ask for advice before asking for a referral. No exclamation marks, no em
-  dashes, no bullet lists, no "I hope this finds you well", "came across your profile", "passionate",
-  "delve", "leverage", "excited to", "reach out", "I'd love to connect", "synergy", "journey",
-  "pick your brain". Run every message through check_message and fix what it flags.
+- Write each message in the student's voice (profile.how_i_talk). First sentence names the specific
+  shared thing with a detail only a real person would mention. One ask, 15 minutes of the reader's
+  time or less; ask for advice before asking for a referral. 90 words max, no exclamation marks, em
+  dashes or bullet lists, none of the banned phrases (""" + ", ".join(slop_check.BANNED) + """).
+  check_message enforces all of that: run every message through it and fix what it flags.
 - Finish by calling save_routes with: per company, the top 3 routes ranked by score, each with name,
   profile url, score, the quoted evidence, and the message. Then a one-line list of people found who
   are not at the company. Public data only; the student sends every message by hand. After saving,
@@ -57,17 +62,16 @@ How to work:
 def llm(url, body, headers):
     try:
         return sources.http(url, body, headers, timeout=120)
-    except sources.requests.HTTPError as e:
+    except requests.HTTPError as e:
         sys.exit(f"{url}: HTTP {e.response.status_code} {e.response.text[:300]}")
 
 
 def run_tool(name, args):
     print(f"  -> {name}({', '.join(f'{k}={str(v)[:60]!r}' for k, v in args.items())})", file=sys.stderr)
     try:
-        out = tools.call(name, args)
+        return json.dumps(tools.call(name, args))
     except Exception as e:  # noqa: BLE001
-        out = {"error": f"{type(e).__name__}: {e}"}
-    return json.dumps(out)
+        return json.dumps({"error": f"{type(e).__name__}: {e}"})
 
 
 # ---------- Anthropic ----------
@@ -76,9 +80,9 @@ def anthropic_loop(task):
     specs = [{"name": n, "description": t["description"], "input_schema": t["schema"]} for n, t in tools.TOOLS.items()]
     messages = [{"role": "user", "content": task}]
     for _ in range(MAX_STEPS):
-        r = llm("https://api.anthropic.com/v1/messages",
+        r = llm(f"{BASE}/v1/messages",
                 {"model": MODEL, "max_tokens": 8000, "system": SYSTEM, "tools": specs, "messages": messages},
-                {"x-api-key": ANTHROPIC, "anthropic-version": "2023-06-01"})
+                {"x-api-key": KEY, "anthropic-version": "2023-06-01"})
         messages.append({"role": "assistant", "content": r["content"]})
         for b in r["content"]:
             if b["type"] == "text" and b["text"].strip():
@@ -97,7 +101,7 @@ def openai_loop(task):
              for n, t in tools.TOOLS.items()]
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task}]
     for _ in range(MAX_STEPS):
-        r = llm(f"{BASE}/chat/completions", {"model": MODEL, "messages": messages, "tools": specs}, {"Authorization": f"Bearer {OPENAI}"})
+        r = llm(f"{BASE}/chat/completions", {"model": MODEL, "messages": messages, "tools": specs}, {"Authorization": f"Bearer {KEY}"})
         msg = r["choices"][0]["message"]
         messages.append(msg)
         if msg.get("content"):
@@ -111,8 +115,8 @@ def openai_loop(task):
 
 
 def main():
-    if not (ANTHROPIC or OPENAI):
-        sys.exit("Set ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY (any OpenAI-compatible endpoint works with OPENAI_BASE_URL).")
+    if not KEY:
+        sys.exit("Set ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_API_KEY (any OpenAI-compatible endpoint works with OPENAI_BASE_URL).")
     if not sources.EXA_KEY:
         print(sources.NO_KEY_WARNING, file=sys.stderr)
     if os.path.exists(ROUTES):
