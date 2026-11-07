@@ -11,29 +11,31 @@ import os
 import slop_check
 import sources
 
+# Supported parameter types: JSON schema name, and how to coerce what the model sends back.
 KINDS = {str: "string", int: "integer", float: "number", bool: "boolean"}
+COERCE = {str: str, int: int, float: float, bool: lambda v: str(v).lower() in ("true", "1")}
 TOOLS = {}
 
 
 def tool(fn):
     doc = inspect.getdoc(fn)
     assert doc, f"{fn.__name__} needs a docstring: it is what the model reads"
-    props, required = {}, []
+    props, required, coerce = {}, [], {}
     for name, p in inspect.signature(fn).parameters.items():
         assert p.annotation in KINDS, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
         props[name] = {"type": KINDS[p.annotation]}
+        coerce[name] = COERCE[p.annotation]
         if p.default is inspect.Parameter.empty:
             required.append(name)
-    TOOLS[fn.__name__] = {"fn": fn, "description": doc, "schema": {"type": "object", "properties": props, "required": required}}
+    TOOLS[fn.__name__] = {"fn": fn, "description": doc, "coerce": coerce,
+                          "schema": {"type": "object", "properties": props, "required": required}}
     return fn
 
 
 def call(name, args):
     """Run a tool with arguments as the model sent them, coerced to the annotated types."""
-    fn = TOOLS[name]["fn"]
-    types = {k: p.annotation for k, p in inspect.signature(fn).parameters.items()}
-    coerced = {k: (str(v).lower() in ("true", "1") if types[k] is bool else types[k](v)) for k, v in args.items() if k in types}
-    return fn(**coerced)
+    t = TOOLS[name]
+    return t["fn"](**{k: t["coerce"][k](v) for k, v in args.items() if k in t["coerce"]})
 
 
 @tool
@@ -45,7 +47,7 @@ def search_people(query: str, exact: bool = False, n: int = 8):
     '"Monzo" "CompSoc"'. Run several different queries; one query rarely finds everyone."""
     people, src = sources.exa_people(query, n=min(n, 10), keyword=exact)
     for p in people:
-        p["text"] = p["text"][:2500]  # jobs and education are structured; the text is for the rest
+        p["text"] = p["text"][:2500]  # keeps the model's context small; jobs and education are structured
     return {"source": src, "people": people}
 
 

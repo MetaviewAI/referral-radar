@@ -1,4 +1,4 @@
-"""The data layer: every network call the kit makes, and nothing about what to do with the results.
+"""The data layer: every network call the kit makes, normalised into plain dicts and ranked for relevance.
 
 Python 3.9+ and `requests`. Set OFFLINE=1 to use fixtures/ instead of the network.
 """
@@ -52,15 +52,19 @@ def fixture(name):
 
 
 def fetch(url, body=None, headers=None, timeout=TIMEOUT, fixture_name=None):
-    """http() with retries on 429, a copy of every response in cache/, and a fixture to fall back on
-    when offline or the call fails. Returns (data, source) where source is live / fixture / missing."""
+    """http() with a disk cache, retries on 429, and a fixture to fall back on when offline or the
+    call fails. Returns (data, source) where source is live / cache / fixture / missing."""
+    key = hashlib.sha1(json.dumps([url, body], sort_keys=True).encode()).hexdigest()[:16]
+    cached = os.path.join(ROOT, "cache", f"{fixture_name or 'r'}_{key}.json")
     if not OFFLINE:
+        if os.path.exists(cached):
+            with open(cached) as f:
+                return json.load(f), "cache"
         for attempt in range(4):
             try:
                 data = http(url, body, headers, timeout)
-                os.makedirs(os.path.join(ROOT, "cache"), exist_ok=True)
-                key = hashlib.sha1(json.dumps([url, body], sort_keys=True).encode()).hexdigest()[:16]
-                with open(os.path.join(ROOT, "cache", f"{fixture_name or 'r'}_{key}.json"), "w") as f:
+                os.makedirs(os.path.dirname(cached), exist_ok=True)
+                with open(cached, "w") as f:
                     json.dump(data, f)
                 return data, "live"
             except requests.HTTPError as e:
@@ -146,14 +150,14 @@ def exa_people(query, n=8, keyword=False):
     """Exa's profile index, two ways: semantic (category=people) or exact phrases (keyword search
     restricted to linkedin.com/in). Both return the same structured entities. People are never
     bundled as fixtures (they are real people), so offline or keyless means none."""
+    if not EXA_KEY or OFFLINE:
+        return [], "offline" if OFFLINE else "no key"
     body = {"query": query, "numResults": n, "contents": {"text": {"maxCharacters": 8000}}}
     if keyword:
         body.update({"type": "keyword", "includeDomains": ["linkedin.com/in", "uk.linkedin.com/in"]})
     else:
         body["category"] = "people"
-    if not EXA_KEY or OFFLINE:
-        return [], "offline" if OFFLINE else "no key"
-    data, src = fetch("https://api.exa.ai/search", body=body, headers={"x-api-key": EXA_KEY}, fixture_name="people")
+    data, src = fetch("https://api.exa.ai/search", body=body, headers={"x-api-key": EXA_KEY})
     people = []
     for r in (data or {}).get("results", []):
         props = ((r.get("entities") or [{}])[0].get("properties") or {})
@@ -177,7 +181,7 @@ def gh(path):
     headers = {"Accept": "application/vnd.github+json"}
     if GITHUB_TOKEN:
         headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-    return fetch(f"https://api.github.com{path}", headers=headers, fixture_name="gh" + slug(path))
+    return fetch(f"https://api.github.com{path}", headers=headers)
 
 
 def gh_user(login):
