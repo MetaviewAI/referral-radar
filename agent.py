@@ -25,7 +25,7 @@ GEMINI = os.environ.get("GEMINI_API_KEY")
 OPENAI = os.environ.get("OPENAI_API_KEY") or GEMINI
 BASE = (os.environ.get("OPENAI_BASE_URL")
         or ("https://generativelanguage.googleapis.com/v1beta/openai" if GEMINI and not os.environ.get("OPENAI_API_KEY") else "https://api.openai.com/v1")).rstrip("/")
-MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gemini-2.5-flash" if OPENAI == GEMINI else "gpt-4.1")
+MODEL = os.environ.get("MODEL") or ("claude-sonnet-4-5" if ANTHROPIC else "gemini-3.8-flash" if OPENAI == GEMINI else "gpt-4.1")
 
 SYSTEM = """You are a referral radar for a student. Find the people inside their target companies who
 share something real with them, prove it with evidence, and write one message per route.
