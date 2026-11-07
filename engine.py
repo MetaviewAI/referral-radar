@@ -174,7 +174,7 @@ def people_for(profile, target):
     from educationHistory / past employers / the profile text. Societies and repos only show up in
     the text, so the agent still has to read it."""
     company = target["name"]
-    # Highest-scoring overlaps in the Prompt 2 rubric first, since only the first five are searched.
+    # One search per kind of overlap plus every uni: unis find the most people, the rest score highest.
     hooks = [(s, "who were in") for s in profile.get("societies", [])[:1]] \
         + [(h, "who went to") for h in profile.get("hackathons", [])[:1]] \
         + [(profile.get("school"), "who went to school at")] \
@@ -183,7 +183,7 @@ def people_for(profile, target):
         + [(u, "who studied at") for u in profile.get("unis", [])]
     hooks = [(h, verb) for h, verb in hooks if h]
     out, srcs = [], []
-    for hook, verb in hooks[:5]:
+    for hook, verb in hooks:
         slug = re.sub(r"[^a-z0-9]+", "_", f"{company}_{hook}".lower())
         people, src = exa_people(f"people_{slug}", f"People working at {company} {verb} {hook}")
         out += people
