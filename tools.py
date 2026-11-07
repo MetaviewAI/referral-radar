@@ -1,90 +1,82 @@
-"""Tools the agent can call. Add one: write a function, decorate it with @tool, done.
+"""Tools the agent can call. Add one: write a function, annotate every parameter, give it a
+docstring, decorate it with @tool. Done.
 
-The schema the model sees is built from the function's signature and docstring, so write the
-docstring for the model: say what the tool is for and what comes back.
+The schema the model sees is built from the signature and the docstring, so write the docstring
+for the model: what the tool is for and what comes back. Parameters are str, int, float or bool.
+Return anything JSON can hold. Never raise for an empty result; return it.
 """
 import inspect
-import json
 import os
-import subprocess
-import sys
 
-import engine
+import slop_check
+import sources
 
+KINDS = {str: "string", int: "integer", float: "number", bool: "boolean"}
 TOOLS = {}
 
 
 def tool(fn):
-    """Register fn as a tool. Parameters must be str or int with a default or not."""
-    params, required = {}, []
+    doc = inspect.getdoc(fn)
+    assert doc, f"{fn.__name__} needs a docstring: it is what the model reads"
+    props, required = {}, []
     for name, p in inspect.signature(fn).parameters.items():
-        kind = "integer" if p.annotation is int else "string"
-        params[name] = {"type": kind}
+        assert p.annotation in KINDS, f"{fn.__name__}.{name}: annotate as one of str, int, float, bool"
+        props[name] = {"type": KINDS[p.annotation]}
         if p.default is inspect.Parameter.empty:
             required.append(name)
-    TOOLS[fn.__name__] = {"fn": fn, "description": inspect.getdoc(fn),
-                          "schema": {"type": "object", "properties": params, "required": required}}
+    TOOLS[fn.__name__] = {"fn": fn, "description": doc, "schema": {"type": "object", "properties": props, "required": required}}
     return fn
 
 
+def call(name, args):
+    """Run a tool with arguments as the model sent them, coerced to the annotated types."""
+    fn = TOOLS[name]["fn"]
+    types = {k: p.annotation for k, p in inspect.signature(fn).parameters.items()}
+    coerced = {k: (str(v).lower() in ("true", "1") if types[k] is bool else types[k](v)) for k, v in args.items() if k in types}
+    return fn(**coerced)
+
+
 @tool
-def search_people(query: str, exact: int = 0):
-    """Search a public index of professional profiles. Returns up to 8 people with their current and
-    past jobs, education, location and profile text. Semantic by default, e.g. "People working at Monzo
-    who went to the University of Edinburgh". exact=1 does a keyword search for quoted phrases instead,
-    e.g. '"Monzo" "CompSoc"'. Run several different queries; one query rarely finds everyone."""
-    slug = engine.re.sub(r"[^a-z0-9]+", "_", query.lower())[:60]
-    people, src = engine.exa_people(f"agent_{slug}", query, keyword=bool(exact))
+def search_people(query: str, exact: bool = False, n: int = 8):
+    """Search a public index of professional profiles. Returns up to n (max 10) people with their
+    current and past jobs, education, location and profile text (societies, hackathons and repos only
+    show up in the text, so read it). Semantic by default, e.g. "People working at Monzo who went to the
+    University of Edinburgh". exact=true does a keyword search for quoted phrases instead, e.g.
+    '"Monzo" "CompSoc"'. Run several different queries; one query rarely finds everyone."""
+    people, src = sources.exa_people(query, n=min(n, 10), keyword=exact)
     for p in people:
-        p["text"] = p["text"][:1500]
+        p["text"] = p["text"][:2500]  # jobs and education are structured; the text is for the rest
     return {"source": src, "people": people}
 
 
 @tool
-def search_jobs(company: str, ats: str, slug: str):
-    """Open jobs on a company's public job board. ats is ashby, greenhouse or lever; slug is the board
-    name (usually the company name in lowercase). Returns the 25 most relevant jobs: title, location,
-    url, and whether they look engineering / early-career / in the student's locations."""
-    jobs, src = engine.jobs_for({"name": company, "ats": ats, "slug": slug}, PROFILE.get("locations", []))
+def search_jobs(ats: str, board: str, locations: str = ""):
+    """Open jobs on a company's public job board. ats is ashby, greenhouse or lever; board is the
+    board name (usually the company name in lowercase). locations is a comma-separated list of the
+    student's cities. Returns the 25 most relevant jobs: title, location, url, and whether each looks
+    engineering / early-career / in those locations."""
+    jobs, src = sources.jobs_for(ats, board, [x.strip() for x in locations.split(",") if x.strip()])
     return {"source": src, "total": len(jobs), "jobs": [{k: v for k, v in j.items() if k != "description"} for j in jobs[:25]]}
 
 
 @tool
 def github_org_members(org: str, n: int = 20):
     """Public members of a GitHub organisation, with name, location, bio and company where set."""
-    members, _ = engine.gh(f"gh_members_{org}", f"/orgs/{org}/public_members?per_page={n}")
-    out = []
-    for m in (members or [])[:n]:
-        u, _ = engine.gh(f"gh_user_{m['login']}", f"/users/{m['login']}")
-        out.append({"login": m["login"], "url": m["html_url"], **{k: (u or {}).get(k) for k in ("name", "location", "bio", "company")}})
-    return out
+    return [{**m, **sources.gh_user(m["login"])} for m in sources.gh_org_members(org, n)]
 
 
 @tool
 def check_message(text: str):
-    """Run a draft message through slop_check.py. Returns ok, or the list of reasons it sounds like a
-    bot. Fix every reason and check again before saving."""
-    r = subprocess.run([sys.executable, os.path.join(engine.ROOT, "slop_check.py")], input=text, capture_output=True, text=True)
-    return {"ok": r.returncode == 0, "problems": (r.stdout + r.stderr).strip()}
+    """Run a draft message through the slop detector. Returns ok, or the list of reasons it sounds
+    like a bot. Fix every reason and check again before saving."""
+    found = slop_check.problems(text)
+    return {"ok": not found, "problems": found}
 
 
 @tool
 def save_routes(markdown: str):
-    """Write the finished routes.md and stop. Ranked routes per company, the quoted evidence for each
-    shared thing, and one message per route that passed check_message."""
-    with open(os.path.join(engine.ROOT, "routes.md"), "w") as f:
+    """Write the finished routes.md. Ranked routes per company, the quoted evidence for each shared
+    thing, and one message per route that passed check_message."""
+    with open(os.path.join(sources.ROOT, "routes.md"), "w") as f:
         f.write(markdown)
     return {"saved": "routes.md", "chars": len(markdown)}
-
-
-PROFILE = {}
-
-
-def load_profile():
-    path = os.path.join(engine.ROOT, "profile.json")
-    if not os.path.exists(path):
-        path = os.path.join(engine.ROOT, "profile.example.json")
-        print("No profile.json yet, using profile.example.json (Prompt 1 writes yours).", file=sys.stderr)
-    with open(path) as f:
-        PROFILE.update(json.load(f))
-    return PROFILE

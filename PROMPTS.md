@@ -12,7 +12,7 @@ board: check https://api.ashbyhq.com/posting-api/job-board/<slug>,
 https://boards-api.greenhouse.io/v1/boards/<slug>/jobs and
 https://api.lever.co/v0/postings/<slug>?mode=json (the slug is usually the company name in
 lowercase; look at the company careers page URL if unsure). Put the ats and slug you verified
-into profile.json. Then run `python3 engine.py` and tell me what it found.
+into profile.json. Then run `python3 agent.py` (or `python3 engine.py` if I have no LLM key) and tell me what it found.
 ```
 
 ## Prompt 2 — find my routes in (10 min)

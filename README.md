@@ -20,20 +20,21 @@ Write `profile.json` first (copy `profile.example.json`, or paste **Prompt 1** f
 
 ## The agent
 
-`agent.py` is one loop, 130 lines: the model picks a tool, we run it, it reads the result, repeat
-until it calls `save_routes`. Nothing in it says *which* searches to run. The model reads your
-profile and decides. The tools are in `tools.py`:
+`agent.py` is one short loop: the model picks a tool, we run it, it reads the result, repeat
+until it stops asking. Nothing in it says *which* searches to run. The model reads your profile
+and decides. The tools are in `tools.py`; the network calls they make are in `sources.py`:
 
 | Tool | What it does |
 |---|---|
-| `search_people(query, exact)` | Exa people search, semantic or exact-phrase |
-| `search_jobs(company, ats, slug)` | a company's public job board |
+| `search_people(query, exact, n)` | Exa people search, semantic or exact-phrase |
+| `search_jobs(ats, board, locations)` | a company's public job board |
 | `github_org_members(org)` | public members of a GitHub org, with bio and location |
 | `check_message(text)` | the slop detector, so it fixes its own drafts |
 | `save_routes(markdown)` | writes `routes.md` and stops |
 
-Adding a tool is a function with a docstring and `@tool`. The schema the model sees is built
-from the signature, so the docstring is the whole spec.
+Adding a tool is a function with typed parameters (str, int, float, bool), a docstring and
+`@tool`. The schema the model sees is built from the signature, so the docstring is the whole
+spec. A missing docstring or an unannotated parameter fails at import, on purpose.
 
 ## Your task (the workshop)
 
@@ -41,37 +42,36 @@ Run it once as is. Read `routes.md`. Then make the agent better than ours by cha
 can do, not by telling it what to do. Pick one:
 
 1. **Add a tool.** Ideas, easiest first:
-   - `search_web(query)`: Exa web search (same endpoint, drop `category`) so it can find a
-     person's talks, blog posts or hackathon write-ups and quote them.
-   - `github_contributors(repo)`: who contributed to a repo you starred (`GET /repos/{owner}/{repo}/contributors`).
+   - `search_web(query)`: Exa web search (`sources.fetch` on the same endpoint, no `category`) so
+     it can find a person's talks, blog posts or hackathon write-ups and quote them.
+   - `github_contributors(repo)`: who contributed to a repo you starred (`sources.gh("/repos/{owner}/{repo}/contributors")`).
    - `read_page(url)`: fetch a URL and return its text, so it can read a job ad or a personal site
      before writing.
    - `company_news(company)`: Exa search with `category: "news"`, so the message can mention
      something that happened this month.
    - `ask_me(question)`: `input()` on the terminal. Let the agent ask *you* when it is unsure
      whether a shared thing is real.
-2. **Change a tool.** `search_people` returns 8 results. Make it 20 and see if the ranking
-   changes. Make `check_message` stricter (ban "I noticed", cap at 60 words) and watch the
-   drafts change. Make `save_routes` refuse a route with no quoted evidence.
+2. **Change a tool.** `search_people` caps results at 10 and profile text at 2,500 characters.
+   Raise them and watch the context fill up. Make `check_message` stricter (ban "I noticed",
+   cap at 60 words) and watch the drafts change. Make `save_routes` refuse a route with no
+   quoted evidence.
 3. **Change nothing but the system prompt** in `agent.py` and see how little it takes to make
    the messages sound like you.
 
 Ship: a diff, a `routes.md`, and one message you would actually send. Show us at the booth.
 
-No LLM key? `python3 engine.py` runs the old fixed pipeline, then paste **Prompt 2** into your
-coding tool. Same output, you do the planning. No wifi? `OFFLINE=1 python3 engine.py` uses the
-bundled `fixtures/`.
-
-No wifi? `OFFLINE=1 python3 engine.py` uses the bundled `fixtures/`: job board snapshots for
-Metaview, Monzo and Wordsmith taken on 6 Nov 2026. People are not bundled (they are real people),
-so finding routes needs a live run with your Exa key.
+No LLM key? `python3 engine.py` runs the same tools in a fixed order a person wrote, into
+`research.json`; then paste **Prompt 2** into your coding tool and it does the ranking. No wifi?
+`OFFLINE=1 python3 engine.py` uses the bundled `fixtures/`: job board snapshots for Metaview, Monzo
+and Wordsmith taken on 6 Nov 2026. People are not bundled (they are real people), so finding
+routes needs a live run with your Exa key.
 
 ## What it does
 
 ```
-profile.json ─► agent.py ◄──► tools.py ─► routes.md
-   you          decides what   jobs, people,   ranked routes, quoted evidence,
-                to search      GitHub, slop    one 90-word message each
+profile.json ─► agent.py ◄──► tools.py ◄──► sources.py ─► routes.md
+   you          decides what   what it can     the network    ranked routes, quoted evidence,
+                to search      call            calls          one 90-word message each
 ```
 
 ## Rules of the game
@@ -83,6 +83,6 @@ profile.json ─► agent.py ◄──► tools.py ─► routes.md
 
 ## Files
 
-`agent.py` the loop · `tools.py` what it can call · `engine.py` the fixed pipeline, no LLM key needed · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you, gitignored; copy `profile.example.json` (fields: unis, course, school, societies, hometown, city, locations, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
+`agent.py` the loop · `tools.py` what it can call · `sources.py` the network calls · `engine.py` the same tools in a fixed order, no LLM key needed · `slop_check.py` pipe a message in, get told why it sounds like a bot · `profile.json` you, gitignored; copy `profile.example.json` (fields: unis, course, school, societies, hometown, city, locations, past_employers, github, hackathons, targets) · `PROMPTS.md` what to paste · `AGENTS.md` context for your coding agent · `fixtures/` offline job boards
 
 Built for HackTheBurgh XIII by Metaview. Questions: find us at the booth.
