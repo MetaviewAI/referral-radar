@@ -1,0 +1,50 @@
+{
+  "name": "Your Name",
+  "uni": "University of Edinburgh",
+  "course": "Computer Science",
+  "grad_year": 2027,
+  "school": "",
+  "societies": [
+    "CompSoc"
+  ],
+  "hometown": "",
+  "city": "Edinburgh",
+  "past_employers": [],
+  "github": "",
+  "hackathons": [
+    "HackTheBurgh"
+  ],
+  "interests": [
+    "AI agents",
+    "Python"
+  ],
+  "roles_wanted": [
+    "software engineer intern",
+    "graduate software engineer"
+  ],
+  "locations": [
+    "Edinburgh",
+    "London",
+    "Remote"
+  ],
+  "how_i_talk": "casual, direct, short sentences, no corporate words",
+  "targets": [
+    {
+      "name": "Metaview",
+      "ats": "ashby",
+      "slug": "metaview",
+      "github_org": "MetaviewAI"
+    },
+    {
+      "name": "Monzo",
+      "ats": "greenhouse",
+      "slug": "monzo",
+      "github_org": "monzo"
+    },
+    {
+      "name": "Wordsmith",
+      "ats": "ashby",
+      "slug": "wordsmith"
+    }
+  ]
+}
