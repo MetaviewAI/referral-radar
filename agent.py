@@ -8,12 +8,12 @@ queries to run, reads what comes back, and writes routes.md when it has evidence
     export ANTHROPIC_API_KEY=...      # or OPENAI_API_KEY (+ optional OPENAI_BASE_URL for Groq, OpenRouter, Ollama...)
     python3 agent.py
 
-Python 3.9+, standard library only. Tools live in tools.py; add yours there.
+Python 3.9+, `pip install requests`. Tools live in tools.py; add yours there.
 """
 import json
 import os
 import sys
-import urllib.request
+import requests
 
 import tools
 
@@ -49,9 +49,10 @@ How to work:
 
 
 def http(url, body, headers):
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return json.loads(r.read().decode())
+    r = requests.post(url, json=body, headers=headers, timeout=120)
+    if not r.ok:
+        sys.exit(f"{url}: HTTP {r.status_code} {r.text[:300]}")
+    return r.json()
 
 
 def run_tool(name, args):
